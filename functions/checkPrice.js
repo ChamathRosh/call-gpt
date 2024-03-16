@@ -10,4 +10,4 @@ async function checkPrice(functionArgs) {
   }
 }
 
-module.exports = checkPrice;
+module.exports = { checkPrice };
