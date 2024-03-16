@@ -14,4 +14,4 @@ async function placeOrder(functionArgs) {
   return JSON.stringify({ orderNumber: orderNum, price: Math.floor(quantity * 179 * 1.079) });
 }
 
-module.exports = placeOrder;
+module.exports = { placeOrder };
