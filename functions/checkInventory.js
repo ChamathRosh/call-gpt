@@ -11,4 +11,4 @@ async function checkInventory(functionArgs) {
   }
 }
 
-module.exports = [ checkInventory };
+module.exports = { checkInventory };
