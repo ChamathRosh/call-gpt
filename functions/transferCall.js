@@ -17,4 +17,4 @@ const transferCall = async function (call) {
     });
 };
 
-module.exports = transferCall;
+module.exports = { transferCall };
