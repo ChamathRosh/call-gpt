@@ -1,54 +1,56 @@
 const EventEmitter = require('events');
 const fetch = require('node-fetch');
-const PlayHT = require('playht'); // Assuming PlayHT SDK is similar to fetch in usage
+const { Buffer } = require('node:buffer');
 
 class TextToSpeechService extends EventEmitter {
-  constructor(config) {
-    super();
-    this.config = config;
-    this.config.voiceId ||= process.env.VOICE_ID;
-    this.nextExpectedIndex = 0;
-    this.speechBuffer = {};
-  }
-
-  async generate(gptReply, interactionCount) {
-    const { partialResponseIndex, partialResponse } = gptReply;
-
-    if (!partialResponse) { return; }
-
-    try {
-      // Initialize PlayHT with your credentials
-      PlayHT.init({
-        apiKey: process.env.PLAYHT_API_KEY,
-        userId: process.env.PLAYHT_USER_ID,
-      });
-
-      // Configure streaming options for PlayHT
-      const streamingOptions = {
-        voiceEngine: "PlayHT2.0-turbo",
-        voiceId: 's3://voice-cloning-zero-shot/801a663f-efd0-4254-98d0-5c175514c3e8/jennifer/manifest.json', // Hardcoded voice ID
-        outputFormat: 'mulaw', // Twilio requires 'mulaw' format
-        sampleRate: 8000, // Match Twilio's expected sample rate
-        speed: 1, // Default speed
-      };
-
-      // Start streaming text to speech
-      const stream = await PlayHT.stream(partialResponse, streamingOptions);
-
-      // Collect chunks of audio data
-      let audioChunks = [];
-      for await (const chunk of stream) {
-        audioChunks.push(chunk);
-      }
-
-      // Assuming PlayHT provides raw audio data, convert chunks to base64 for Twilio
-      const audioBase64 = Buffer.concat(audioChunks).toString('base64');
-      this.emit('speech', partialResponseIndex, audioBase64, partialResponse, interactionCount);
-    } catch (err) {
-      console.error('Error occurred in TextToSpeech service using PlayHT');
-      console.error(err);
+    constructor(config) {
+        super();
+        this.config = config;
     }
-  }
+
+    async generate(gptReply, interactionCount) {
+        const { partialResponseIndex, partialResponse } = gptReply;
+
+        if (!partialResponse) return;
+
+        // Construct the URL with query parameters for encoding and sample rate
+        // Adding `container=none` to prevent request header information from being misinterpreted as audio
+        const apiUrl = `https://api.deepgram.com/v1/speak?model=aura-athena-en&encoding=mulaw&sample_rate=8000&container=none`;
+        const apiKey = 'ffe4917ff05f5880addcf080bf7595472ca296ec'; // Use your actual Deepgram API key
+
+        const modifiedText = this.addPausesAndFillerWords(partialResponse);
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Token ${apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text: modifiedText }),
+            });
+
+            if (!response.ok) {
+                const errorResponse = await response.json();
+                console.error('Deepgram TTS API Error:', errorResponse);
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+
+            const audioBuffer = await response.arrayBuffer();
+            const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+            this.emit('speech', partialResponseIndex, audioBase64, modifiedText, interactionCount);
+        } catch (err) {
+            console.error('Error occurred in TextToSpeech service:', err.message);
+        }
+    }
+
+    addPausesAndFillerWords(text) {
+        // This method is where we modify the text to include natural pauses and filler words
+        // Example: Add a short pause and "um" at the beginning, and "uh" at the end
+        let modifiedText = text;
+        modifiedText = modifiedText.replace(/, /g, ', ... '); // Adding pauses
+        return modifiedText;
+    }
 }
 
 module.exports = { TextToSpeechService };
