@@ -19,18 +19,15 @@ class GptService extends EventEmitter {
     });
     this.userContext = [
       { 'role': 'system', 'content': assistant },
-      { 'role': 'assistant', 'content': 'Hello! I understand you\'re looking for a pair of AirPods, is that correct?' },
     ];
     this.partialResponseIndex = 0;
   }
 
   setCallSid(callSid) {
-    // Ensures call SID is part of the conversation context for reference
     this.userContext.push({ 'role': 'system', 'content': `callSid: ${callSid}` });
   }
 
   updateUserContext(name, role, text) {
-    // Adds new messages to the conversation context, preserving the history
     if (name !== 'user') {
       this.userContext.push({ 'role': role, 'name': name, 'content': text });
     } else {
@@ -39,34 +36,37 @@ class GptService extends EventEmitter {
   }
 
   async completion(text, interactionCount, role = 'user', name = 'user') {
-    // Update the conversation context with the latest interaction
     this.updateUserContext(name, role, text);
 
     try {
-      // Generate a response using Groq with the entire conversation context
       const completion = await this.groq.chat.completions.create({
         messages: this.userContext,
-        model: "mixtral-8x7b-32768", // Specify the Groq model
+        model: "mixtral-8x7b-32768",
       });
 
-      // Extract and prepare the response content
       let completeResponse = completion.choices[0]?.message?.content || "";
+
+      // Determine the end index based on '@' or '?'
       let endIndex = Math.min(
-        completeResponse.indexOf('•') >= 0 ? completeResponse.indexOf('•') : completeResponse.length,
-        completeResponse.indexOf('?') >= 0 ? completeResponse.indexOf('?') + 1 : completeResponse.length // Adjusted to ensure period inclusion
+        completeResponse.indexOf('@') >= 0 ? completeResponse.indexOf('@') : completeResponse.length,
+        completeResponse.indexOf('?') >= 0 ? completeResponse.indexOf('?') + 1 : completeResponse.length
       );
       completeResponse = completeResponse.substring(0, endIndex);
 
-      // Emit the response for further processing, like TTS
-      const gptReply = {
-        partialResponseIndex: this.partialResponseIndex,
-        partialResponse: completeResponse
-      };
-      this.emit('gptreply', gptReply, interactionCount);
-      this.partialResponseIndex++;
+      // Splitting and chunking based on '•'
+      let chunks = completeResponse.split('.');
+      chunks.forEach((chunk, index) => {
+        if (chunk.trim()) {
+          const gptReply = {
+            partialResponseIndex: this.partialResponseIndex++,
+            partialResponse: chunk.trim()
+          };
+          this.emit('gptreply', gptReply, interactionCount);
+        }
+      });
 
-      // Add the AI's response to the conversation context to maintain memory
-      this.userContext.push({ 'role': 'assistant', 'content': completeResponse });
+      // Update the user context with the last chunk for continuity
+      this.userContext.push({ 'role': 'assistant', 'content': chunks[chunks.length - 1].trim() });
       console.log(`Groq -> user context length: ${this.userContext.length}`.green);
     } catch (error) {
       console.error(`Error during chat completion with Groq: ${error}`.red);
