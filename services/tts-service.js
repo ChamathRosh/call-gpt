@@ -15,7 +15,7 @@ class TextToSpeechService extends EventEmitter {
 
         // Construct the URL with query parameters for encoding and sample rate
         // Adding `container=none` to prevent request header information from being misinterpreted as audio
-        const apiUrl = `https://api.deepgram.com/v1/speak?model=aura-athena-en&encoding=mulaw&sample_rate=8000&container=none`;
+        const apiUrl = `https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=mulaw&sample_rate=8000&container=none`;
         const apiKey = 'ffe4917ff05f5880addcf080bf7595472ca296ec'; // Use your actual Deepgram API key
 
         const modifiedText = this.addPausesAndFillerWords(partialResponse);
