@@ -1,15 +1,7 @@
 require('colors');
 const EventEmitter = require('events');
 const Groq = require("groq-sdk");
-const tools = require('../functions/function-manifest');
 const { assistant } = require('./prompts');
-
-// Import all functions included in the function manifest
-const availableFunctions = {};
-tools.forEach((tool) => {
-  let functionName = tool.function.name;
-  availableFunctions[functionName] = require(`../functions/${functionName}`);
-});
 
 class GptService extends EventEmitter {
   constructor() {
@@ -38,39 +30,38 @@ class GptService extends EventEmitter {
   async completion(text, interactionCount, role = 'user', name = 'user') {
     this.updateUserContext(name, role, text);
 
-    try {
-      const completion = await this.groq.chat.completions.create({
-        messages: this.userContext,
-        model: "mixtral-8x7b-32768",
-      });
+    const stream = await this.groq.chat.completions.create({
+      model: 'mixtral-8x7b-32768',
+      messages: this.userContext,
+      stream: true,
+    }); 
 
-      let completeResponse = completion.choices[0]?.message?.content || "";
+    let completeResponse = '';
+    let partialResponse = '';
+    let finishReason = '';
 
-      // Determine the end index based on '@' or '?'
-      let endIndex = Math.min(
-        completeResponse.indexOf('@') >= 0 ? completeResponse.indexOf('@') : completeResponse.length,
-        completeResponse.indexOf('?') >= 0 ? completeResponse.indexOf('?') + 1 : completeResponse.length
-      );
-      completeResponse = completeResponse.substring(0, endIndex);
+    for await (const chunk of stream) {
+      let content = chunk.choices[0]?.delta?.content || '';
+      finishReason = chunk.choices[0].finish_reason;
 
-      // Splitting and chunking based on '•'
-      let chunks = completeResponse.split('.');
-      chunks.forEach((chunk, index) => {
-        if (chunk.trim()) {
-          const gptReply = {
-            partialResponseIndex: this.partialResponseIndex++,
-            partialResponse: chunk.trim()
-          };
-          this.emit('gptreply', gptReply, interactionCount);
-        }
-      });
+      // We use completeResponse for userContext
+      completeResponse += content;
+      // We use partialResponse to provide a chunk for TTS
+      partialResponse += content;
+      // Emit last partial response and add complete response to userContext
+      if (content.trim().slice(-1) === '•' || finishReason === 'stop') {
+        const gptReply = { 
+          partialResponseIndex: this.partialResponseIndex,
+          partialResponse
+        };
 
-      // Update the user context with the last chunk for continuity
-      this.userContext.push({ 'role': 'assistant', 'content': chunks[chunks.length - 1].trim() });
-      console.log(`Groq -> user context length: ${this.userContext.length}`.green);
-    } catch (error) {
-      console.error(`Error during chat completion with Groq: ${error}`.red);
+        this.emit('gptreply', gptReply, interactionCount);
+        this.partialResponseIndex++;
+        partialResponse = '';
+      }
     }
+    this.userContext.push({'role': 'assistant', 'content': completeResponse});
+    console.log(`GPT -> user context length: ${this.userContext.length}`.green);
   }
 }
 
